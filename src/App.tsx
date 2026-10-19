@@ -10,7 +10,7 @@ import { AnalyticsView } from './components/AnalyticsView';
 import { SAMPLE_DATASETS } from './data/sampleComplaints';
 import { triageSingleComplaint, triageBatchComplaints, checkServerHealth } from './services/triageApi';
 import { ComplaintRecord, SeverityLevel, RecommendedDepartment } from './types';
-import { Sparkles, FileSpreadsheet, ShieldAlert } from 'lucide-react';
+import { Sparkles, FileSpreadsheet, ShieldAlert, CheckCircle2 } from 'lucide-react';
 
 export default function App() {
   const [records, setRecords] = useState<ComplaintRecord[]>([]);
@@ -19,6 +19,7 @@ export default function App() {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [isBatchProcessing, setIsBatchProcessing] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
   const [serverStatus, setServerStatus] = useState<{ status: string; hasApiKey: boolean; model: string }>({
     status: 'checking',
     hasApiKey: false,
@@ -32,99 +33,27 @@ export default function App() {
     });
   }, []);
 
-  // Preload initial dataset and auto-triage on first run
+  // Preload initial dataset with pre-triaged clinical records
   useEffect(() => {
     const initialSample = SAMPLE_DATASETS[0];
-    const initialRecords: ComplaintRecord[] = initialSample.data.map((d) => ({
-      ...d,
-      status: 'pending' as const,
-    }));
-
-    setRecords(initialRecords);
-
-    // Auto-triage initial sample records for an out-of-the-box rich experience
-    const autoTriageInitial = async () => {
-      setIsBatchProcessing(true);
-      setBatchProgress({ current: 0, total: initialRecords.length });
-
-      try {
-        const batchItems = initialRecords.map((r) => ({
-          id: r.id,
-          rawText: r.rawText,
-          channel: r.channel,
-          departmentReported: r.departmentReported,
-          location: r.location,
-        }));
-
-        const res = await triageBatchComplaints(batchItems);
-        const mapResults = new Map(res.results.map((item) => [item.id, item.triage]));
-
-        setRecords((prev) =>
-          prev.map((r) => {
-            const triage = mapResults.get(r.id);
-            if (triage) {
-              return { ...r, status: 'triaged' as const, triage };
-            }
-            return r;
-          })
-        );
-      } catch (err) {
-        console.warn('Initial auto-triage fallback:', err);
-      } finally {
-        setIsBatchProcessing(false);
-      }
-    };
-
-    autoTriageInitial();
+    setRecords(initialSample.data);
   }, []);
 
   // Load a chosen sample dataset
-  const handleLoadSample = useCallback(async (datasetId: string) => {
+  const handleLoadSample = useCallback((datasetId: string) => {
     const dataset = SAMPLE_DATASETS.find((d) => d.id === datasetId) || SAMPLE_DATASETS[0];
-    const newRecords: ComplaintRecord[] = dataset.data.map((d) => ({
-      ...d,
-      status: 'pending' as const,
-    }));
-
-    setRecords(newRecords);
+    setRecords(dataset.data);
     setActiveTab('triage');
-
-    // Auto-triage the loaded sample
-    setIsBatchProcessing(true);
-    setBatchProgress({ current: 0, total: newRecords.length });
-
-    try {
-      const batchItems = newRecords.map((r) => ({
-        id: r.id,
-        rawText: r.rawText,
-        channel: r.channel,
-        departmentReported: r.departmentReported,
-        location: r.location,
-      }));
-
-      const res = await triageBatchComplaints(batchItems);
-      const mapResults = new Map(res.results.map((item) => [item.id, item.triage]));
-
-      setRecords((prev) =>
-        prev.map((r) => {
-          const triage = mapResults.get(r.id);
-          if (triage) {
-            return { ...r, status: 'triaged' as const, triage };
-          }
-          return r;
-        })
-      );
-    } catch (err) {
-      console.warn('Batch triage error:', err);
-    } finally {
-      setIsBatchProcessing(false);
-    }
+    setStatusNotice(`Loaded "${dataset.name}" with complete 6-step triage assessment.`);
+    setTimeout(() => setStatusNotice(null), 4000);
   }, []);
 
   // Handle uploaded CSV / Excel records
   const handleRecordsImported = useCallback((imported: ComplaintRecord[], sourceName: string) => {
     setRecords((prev) => [...imported, ...prev]);
     setActiveTab('triage');
+    setStatusNotice(`Imported ${imported.length} records from ${sourceName}. Click "Triage All Pending" to process.`);
+    setTimeout(() => setStatusNotice(null), 5000);
   }, []);
 
   // Triage single record
@@ -148,7 +77,14 @@ export default function App() {
       );
 
       // If this record is currently open in modal, update it
-      setSelectedComplaint((prev) => (prev?.id === record.id ? { ...prev, triage: res.triage, status: 'triaged' } : prev));
+      setSelectedComplaint((prev) =>
+        prev?.id === record.id ? { ...prev, triage: res.triage, status: 'triaged' } : prev
+      );
+
+      if (res.warning) {
+        setStatusNotice(res.warning);
+        setTimeout(() => setStatusNotice(null), 4000);
+      }
     } catch (err: any) {
       setRecords((prev) =>
         prev.map((r) => (r.id === record.id ? { ...r, status: 'error' as const, error: err.message } : r))
@@ -184,8 +120,13 @@ export default function App() {
           return r;
         })
       );
-    } catch (err) {
+
+      setStatusNotice(`Successfully triaged ${toTriage.length} complaints.`);
+      setTimeout(() => setStatusNotice(null), 4000);
+    } catch (err: any) {
       console.error('Batch triage failed:', err);
+      setStatusNotice('Error occurred during batch triage. Please retry.');
+      setTimeout(() => setStatusNotice(null), 5000);
     } finally {
       setIsBatchProcessing(false);
     }
@@ -210,6 +151,8 @@ export default function App() {
       setSelectedComplaint((prev) =>
         prev?.id === id ? { ...prev, humanSignoff: signoff } : prev
       );
+      setStatusNotice('Human reviewer sign-off saved and documented.');
+      setTimeout(() => setStatusNotice(null), 3000);
     },
     []
   );
@@ -217,6 +160,8 @@ export default function App() {
   // Add ad-hoc triaged record
   const handleAdHocCompleted = useCallback((record: ComplaintRecord) => {
     setRecords((prev) => [record, ...prev]);
+    setStatusNotice('Live complaint triaged and queued for oversight.');
+    setTimeout(() => setStatusNotice(null), 3000);
   }, []);
 
   // Export all triaged records to CSV with full Step 1-6 columns
@@ -284,6 +229,13 @@ export default function App() {
         triagedCount={triagedCount}
         hasApiKey={serverStatus.hasApiKey}
       />
+
+      {/* Temporary Toast / Status Notice */}
+      {statusNotice && (
+        <div className="bg-teal-700 text-white text-xs py-2 px-4 text-center font-medium shadow-md transition animate-in fade-in">
+          {statusNotice}
+        </div>
+      )}
 
       {/* Main Content Viewport */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
