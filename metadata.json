@@ -1,0 +1,6 @@
+{
+  "name": "ClinicalTriage AI - Healthcare Complaint Triage Agent",
+  "description": "Healthcare complaint triage platform for rapid categorization, severity assessment, clinical risk detection, department routing, and human oversight enforcement.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
